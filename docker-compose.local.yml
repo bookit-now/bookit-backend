@@ -1,0 +1,91 @@
+name: bookit-local
+
+x-dotnet-volumes: &dotnet-volumes
+  - .:/src
+  - domain-bin:/src/src/BookIt.Domain/bin
+  - domain-obj:/src/src/BookIt.Domain/obj
+  - application-bin:/src/src/BookIt.Application/bin
+  - application-obj:/src/src/BookIt.Application/obj
+  - infrastructure-bin:/src/src/BookIt.Infrastructure/bin
+  - infrastructure-obj:/src/src/BookIt.Infrastructure/obj
+  - api-bin:/src/src/BookIt.Api/bin
+  - api-obj:/src/src/BookIt.Api/obj
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bookit}
+      POSTGRES_USER: ${POSTGRES_USER:-bookit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data-v18:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    working_dir: /src
+    command:
+      - dotnet
+      - watch
+      - --project
+      - src/BookIt.Api/BookIt.Api.csproj
+      - run
+      - --no-launch-profile
+      - --urls
+      - http://+:8080
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      DOTNET_USE_POLLING_FILE_WATCHER: "true"
+      ConnectionStrings__LibraryDatabase: Host=postgres;Port=5432;Database=${POSTGRES_DB:-bookit};Username=${POSTGRES_USER:-bookit};Password=${POSTGRES_PASSWORD}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes: *dotnet-volumes
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    working_dir: /src
+    command:
+      - dotnet
+      - ef
+      - database
+      - update
+      - --project
+      - src/BookIt.Infrastructure
+      - --startup-project
+      - src/BookIt.Api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__LibraryDatabase: Host=postgres;Port=5432;Database=${POSTGRES_DB:-bookit};Username=${POSTGRES_USER:-bookit};Password=${POSTGRES_PASSWORD}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes: *dotnet-volumes
+
+volumes:
+  api-bin:
+  api-obj:
+  application-bin:
+  application-obj:
+  domain-bin:
+  domain-obj:
+  infrastructure-bin:
+  infrastructure-obj:
+  postgres-data-v18:

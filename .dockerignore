@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.dotnet-home/
+.git/
+.gitignore
+.env
+.nuget/
+Dockerfile*
+README.md
